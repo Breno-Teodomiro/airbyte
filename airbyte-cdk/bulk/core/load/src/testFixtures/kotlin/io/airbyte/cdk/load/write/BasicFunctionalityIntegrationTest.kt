@@ -66,7 +66,6 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertAll
-import org.junit.jupiter.api.assertThrows
 
 sealed interface AllTypesBehavior
 
@@ -125,7 +124,7 @@ abstract class BasicFunctionalityIntegrationTest(
      */
     val commitDataIncrementally: Boolean,
     val allTypesBehavior: AllTypesBehavior,
-    val failOnUnknownTypes: Boolean = false,
+    val nullUnknownTypes: Boolean = false,
     nullEqualsUnset: Boolean = false,
 ) : IntegrationTest(dataDumper, destinationCleaner, recordMangler, nameMapper, nullEqualsUnset) {
     val parsedConfig = ValidatedJsonUtils.parseOne(configSpecClass, configContents)
@@ -1940,13 +1939,15 @@ abstract class BasicFunctionalityIntegrationTest(
 
     @Test
     open fun testUnknownTypes() {
+        assumeTrue(verifyDataWriting)
         val stream =
             DestinationStream(
                 DestinationStream.Descriptor(randomizedNamespace, "problematic_types"),
                 Append,
                 ObjectType(
                     linkedMapOf(
-                        "id" to
+                        "id" to intType,
+                        "name" to
                             FieldType(
                                 UnknownType(
                                     JsonNodeFactory.instance.objectNode().put("type", "whatever")
@@ -1968,7 +1969,8 @@ abstract class BasicFunctionalityIntegrationTest(
                     "problematic_types",
                     """
                         {
-                          "id": "ex falso quodlibet"
+                          "id": 1,
+                          "name": "ex falso quodlibet"
                         }""".trimIndent(),
                     emittedAtMs = 1602637589100,
                 )
@@ -1982,28 +1984,41 @@ abstract class BasicFunctionalityIntegrationTest(
                     generationId = 42,
                     data =
                         mapOf(
-                            "id" to "ex falso quodlibet",
+                            "id" to 1,
+                            "name" to
+                                if (nullUnknownTypes) {
+                                    null
+                                } else {
+                                    "ex falso quodlibet"
+                                },
                         ),
-                    airbyteMeta = OutputRecord.Meta(syncId = 42),
+                    airbyteMeta =
+                        OutputRecord.Meta(
+                            syncId = 42,
+                            changes =
+                                if (nullUnknownTypes) {
+                                    listOf(
+                                        Change(
+                                            "name",
+                                            AirbyteRecordMessageMetaChange.Change.NULLED,
+                                            AirbyteRecordMessageMetaChange.Reason
+                                                .DESTINATION_SERIALIZATION_ERROR
+                                        )
+                                    )
+                                } else {
+                                    emptyList()
+                                }
+                        ),
                 ),
             )
 
-        val dumpBlock = {
-            dumpAndDiffRecords(
-                parsedConfig,
-                expectedRecords,
-                stream,
-                primaryKey = listOf(listOf("id")),
-                cursor = null,
-            )
-        }
-        if (failOnUnknownTypes) {
-            // Note: this will not catch assertion errors against data
-            // if the destination actually succeeds (by design).
-            assertThrows<Exception> { dumpBlock() }
-        } else {
-            dumpBlock()
-        }
+        dumpAndDiffRecords(
+            parsedConfig,
+            expectedRecords,
+            stream,
+            primaryKey = listOf(listOf("id")),
+            cursor = null,
+        )
     }
 
     /**
