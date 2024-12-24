@@ -196,3 +196,12 @@ class S3V2WriteTestEndpointURL :
         allTypesBehavior = Untyped,
         nullEqualsUnset = true,
     )
+
+class S3V2AmbiguousFilepath :
+    S3V2WriteTest(
+        S3V2TestUtils.AMBIGUOUS_FILEPATH_CONFIG_PATH,
+        stringifySchemalessObjects = false,
+        promoteUnionToObject = false,
+        preserveUndeclaredFields = true,
+        allTypesBehavior = Untyped,
+    )
